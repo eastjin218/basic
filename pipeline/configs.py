@@ -23,7 +23,9 @@ OUTPUT_DIR = os.path.join("gs://", GCS_BUCKET_NAME)
 PIPELINE_ROOT = os.path.join(OUTPUT_DIR, "tfx_pipeline_output", PIPELINE_NAME)
 
 DATA_PATH = "./cls_tfdata"
+SCHEMA_PATH = 'pipeline/schema.pbtxt'
 
+TRANSFORM_FN = "modules.preprocessing.preprocessing_fn"
 TRAINING_FN = "modules.train.run_fn"
 
 EXAMPLE_GEN_BEAM_ARGS = None

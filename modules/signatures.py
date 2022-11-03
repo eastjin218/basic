@@ -42,7 +42,7 @@ def model_exporter(model: tf.keras.Model):
     # )
 
     m_call = tf.function(model.call).get_concrete_function(
-        tf.TensorSpec(shape=[None, 224, 224, 3], dtype=tf.float32, name='input_1')
+        tf.TensorSpec(shape=[None, 224, 224, 3], dtype=tf.float32, name=CONCRETE_INPUT)
     )
 
     @tf.function(input_signature=[tf.TensorSpec([None], tf.string)])

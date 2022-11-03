@@ -1,6 +1,7 @@
 import tensorflow as tf
 
 import absl
+from .common import IMAGE_MODEL_KEY
 
 def INFO(text:str):
     absl.logging.info(text)
@@ -9,7 +10,7 @@ def build_model(pretrained_checkpoint:str = None):
     if pretrained_checkpoint:
         model = tf.keras.models.load_model(pretrained_checkpoint)
     else:
-        inputs = tf.keras.Input(shape=(224,224,3))
+        inputs = tf.keras.Input(shape=(224,224,3), name=IMAGE_MODEL_KEY)
         img_augmentation = tf.keras.models.Sequential(
             [
                 tf.keras.layers.RandomRotation(factor=0.15),
