@@ -1,4 +1,5 @@
 import os  # pylint: disable=unused-import
+import tensorflow_model_analysis as tfma
 import tfx.extensions.google_cloud_ai_platform.constants as vertex_const
 import tfx.extensions.google_cloud_ai_platform.trainer.executor as vertex_training_const
 
@@ -23,12 +24,48 @@ OUTPUT_DIR = os.path.join("gs://", GCS_BUCKET_NAME)
 PIPELINE_ROOT = os.path.join(OUTPUT_DIR, "tfx_pipeline_output", PIPELINE_NAME)
 
 DATA_PATH = "./cls_tfdata"
-SCHEMA_PATH = 'pipeline/schema.pbtxt'
+SCHEMA_PATH = "pipeline/schema.pbtxt"
 
 TRANSFORM_FN = "modules.preprocessing.preprocessing_fn"
 TRAINING_FN = "modules.train.run_fn"
+TUNER_FN = "modules.tuning.tuner_fn"
+
+HYPER_PARAMETERS = {
+    "learning_rate": {"values": [1e-3, 1e-2, 1e-1], "default": 1e-3},
+    "layer_number" : {"values": [1,2,3], "default":1 }
+}
 
 EXAMPLE_GEN_BEAM_ARGS = None
+
+EVAL_CONFIGS = tfma.EvalConfig(
+    model_specs=[
+        tfma.ModelSpec(
+            signature_name="from_examples",
+            preprocessing_function_names=["transform_features"],
+            label_key="labels",
+            prediction_key="labels",
+        )
+    ],
+    slicing_specs=[tfma.SlicingSpec()],
+    metrics_specs=[
+        tfma.MetricsSpec(
+            metrics=[
+                tfma.MetricConfig(
+                    class_name="SparseCategoricalAccuracy",
+                    threshold=tfma.MetricThreshold(
+                        value_threshold=tfma.GenericValueThreshold(
+                            lower_bound={"value": 0.55}
+                        ),
+                        change_threshold=tfma.GenericChangeThreshold(
+                            direction=tfma.MetricDirection.HIGHER_IS_BETTER,
+                            absolute={"value": -1e-3},
+                        ),
+                    ),
+                )
+            ]
+        )
+    ],
+)
 
 GCP_AI_PLATFORM_TRAINING_ARGS = {
     vertex_const.ENABLE_VERTEX_KEY: True,

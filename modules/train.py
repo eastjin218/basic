@@ -1,17 +1,29 @@
 import tensorflow_transform as tft
 from tfx.components.trainer.fn_args_utils import FnArgs
+import keras_tuner
 
 from .train_data import input_fn
+from .utils import INFO
 # from .ViT import build_model
 from .model import build_model
-from .signatures import model_exporter
+from .signatures import (
+    model_exporter,
+    transform_features_signature,
+    tf_examples_serving_signature,
+)
 
 from .hyperparams import TRAIN_BATCH_SIZE, EVAL_BATCH_SIZE
 from .hyperparams import TRAIN_LENGTH, EVAL_LENGTH
 from .hyperparams import EPOCHS
 
-
 def run_fn(fn_args: FnArgs):
+    custom_config = fn_args.custom_config
+    epochs = EPOCHS
+
+    if custom_config is not None:
+        if "is_local" in custom_config:
+            epochs = 1
+
     tf_transform_output = tft.TFTransformOutput(fn_args.transform_output)
 
     train_dataset = input_fn(
@@ -30,7 +42,9 @@ def run_fn(fn_args: FnArgs):
         batch_size=EVAL_BATCH_SIZE,
     )
 
-    model = build_model()
+    hparams = keras_tuner.HyperParameters.from_config(fn_args.hyperparameters)
+    INFO(f"HyperParameters for training : {hparams.get_config()}")
+    model = build_model(hparams)
 
     model.fit(
         train_dataset,
@@ -41,5 +55,11 @@ def run_fn(fn_args: FnArgs):
     )
 
     model.save(
-        fn_args.serving_model_dir, save_format="tf", signatures=model_exporter(model)
+        fn_args.serving_model_dir, save_format="tf", signatures={
+            "serving_default":model_exporter(model),
+            "transform_features":transform_features_signature(
+                model, tf_transform_output
+            ),
+            "from_examples":tf_examples_serving_signature(model, tf_transform_output),
+        }
     )

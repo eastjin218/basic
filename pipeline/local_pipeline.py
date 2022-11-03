@@ -1,7 +1,7 @@
 from typing import Dict, Optional, Text
 
 from tfx import v1 as tfx
-
+import tensorflow_model_analysis as tfma
 from ml_metadata.proto import metadata_store_pb2
 from tfx.proto import example_gen_pb2
 
@@ -10,11 +10,20 @@ from tfx.components import StatisticsGen
 from tfx.v1.components import ImportSchemaGen
 from tfx.components import ExampleValidator
 from tfx.components import Transform
+from tfx.components import Tuner
 from tfx.components import Trainer
+from tfx.components import Evaluator
 from tfx.components import Pusher
 from tfx.orchestration import pipeline
 from tfx.proto import example_gen_pb2
 
+from tfx.types import Channel
+from tfx.types.standard_artifacts import Model
+from tfx.types.standard_artifacts import ModelBlessing
+from tfx.dsl.components.common import resolver
+# from tfx.dsl.experimental.latest_blessed_model_resolver import (
+#     LatestBlessedModelResolver,
+# )
 
 def create_pipeline(
     pipeline_name: Text,
@@ -22,6 +31,8 @@ def create_pipeline(
     data_path: Text,
     schema_path: Text,
     modules: Dict[Text, Text],
+    hyperparameters: Dict[Text, Text],
+    eval_configs: tfma.EvalConfig,
     serving_model_dir: Text,
     metadata_connection_config: Optional[metadata_store_pb2.ConnectionConfig] = None,
 ) -> tfx.dsl.Pipeline:
@@ -56,18 +67,47 @@ def create_pipeline(
     transform = Transform(**transform_args)
     components.append(transform)
 
+    tuner = Tuner(
+        tuner_fn = modules["tuner_fn"],
+        examples = transform.outputs["transformed_examples"],
+        schema = schema_gen.outputs["schema"],
+        transform_graph = transform.outputs["transform_graph"],
+        custom_config={"hyperparameters": hyperparameters},
+    )
+    components.append(tuner)
+
     trainer_args = {
         "run_fn": modules["training_fn"],
         # "transformed_examples": transform.outputs["transformed_examples"],
         "examples":transform.outputs["transformed_examples"],
         "transform_graph": transform.outputs["transform_graph"],
         "schema": schema_gen.outputs["schema"],
+        "hyperparameters":tuner.outputs["best_hyperparameters"],
+        "custom_config":{"is_local":True}
     }
     trainer = Trainer(**trainer_args)
     components.append(trainer)
 
+    # mdoel_resolver = resolver.Resolver(
+    model_resolver = tfx.dsl.Resolver(
+        strategy_class=tfx.dsl.experimental.LatestBlessedModelStrategy,
+        # strategy_class=LatestBlessedModelResolver,
+        model=Channel(type=Model),
+        model_blessing=Channel(type=ModelBlessing),
+    ).with_id("latest_blessed_model_resolver")
+    components.append(model_resolver)
+
+    evaluator = Evaluator(
+        examples=example_gen.outputs["examples"],
+        model=trainer.outputs["model"],
+        baseline_model=model_resolver.outputs['model'],
+        eval_config=eval_configs,
+    )
+    components.append(evaluator)
+
     pusher_args = {
         "model": trainer.outputs["model"],
+        "model_blessing":evaluator.outputs["blessing"],
         "push_destination": tfx.proto.PushDestination(
             filesystem=tfx.proto.PushDestination.Filesystem(
                 base_directory=serving_model_dir

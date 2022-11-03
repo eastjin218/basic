@@ -1,11 +1,12 @@
 import tensorflow as tf
+import tensorflow_transform as tft
+from typing import Dict
 # from transformers import ViTFeatureExtractor
 
-from .common import PRETRAIN_CHECKPOINT
+# from .common import PRETRAIN_CHECKPOINT
 from .common import CONCRETE_INPUT
-
+from .common import LABEL_MODEL_KEY
 # feature_extractor = ViTFeatureExtractor.from_pretrained(PRETRAIN_CHECKPOINT)
-
 
 # def _normalize_img(
 #     img, mean=feature_extractor.image_mean, std=feature_extractor.image_std
@@ -14,7 +15,6 @@ from .common import CONCRETE_INPUT
 #     mean = tf.constant(mean)
 #     std = tf.constant(std)
 #     return (img - mean) / std
-
 
 def _preprocess_serving(string_input):
     decoded_input = tf.io.decode_base64(string_input)
@@ -26,7 +26,6 @@ def _preprocess_serving(string_input):
     # )  # Since HF models are channel-first.
     # return normalized
     return resized
-
 
 @tf.function(input_signature=[tf.TensorSpec([None], tf.string)])
 def _preprocess_fn(string_input):
@@ -59,3 +58,35 @@ def model_exporter(model: tf.keras.Model):
         return {"label": pred_source, "confidence": pred_confidence}
 
     return serving_fn
+
+def transform_features_signature(
+    model: tf.keras.Model, tf_transform_output: tft.TFTransformOutput
+):
+    
+    model.tft_layer = tf_transform_output.transform_features_layer()
+
+    @tf.function(
+        input_signature=[tf.TensorSpec([None], dtype=tf.string, name='examples')]
+    )
+    def serve_tf_example_fn(serialized_tf_examples):
+        feature_spec = tf_transform_output.raw_feature_spec()
+        parsed_features = tf.io.parse_example(serialized_tf_examples, feature_spec)
+
+        transformed_features = model.tft_layer(parsed_features)
+        return transformed_features
+
+    return serve_tf_example_fn
+
+def tf_examples_serving_signature(model, tf_transform_output):
+    model.tft_layer = tf_transform_output.transform_features_layer()
+
+    @tf.function(input_signature=[tf.TensorSpec([None], dtype=tf.string, name='examples')])
+    def serve_tf_example_fn(serialized_tf_example : tf.Tensor)->Dict[str, tf.Tensor]:
+        raw_feature_spec =tf_transform_output.raw_feature_spec()
+        raw_features = tf.io.parse_example(serialized_tf_example, raw_feature_spec)
+
+        transformed_features = model.tft_layer(raw_features)
+        # logits = model(transformed_features).logits
+        logits = model(transformed_features)
+        return {LABEL_MODEL_KEY : logits}
+    return serve_tf_example_fn
